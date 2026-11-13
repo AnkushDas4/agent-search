@@ -1,0 +1,80 @@
+{
+  "name": "brave-search",
+  "displayName": "Brave Search",
+  "baseUrl": "https://search.brave.com",
+  "description": "Public organic web search results from Brave Search (search.brave.com/search).",
+  "operations": [
+    {
+      "name": "search",
+      "description": "Search public organic web results via Brave Search.",
+      "request": {
+        "method": "GET",
+        "url": "https://search.brave.com/search?q=%7Bquery%7D",
+        "headers": {
+          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          "priority": "u=0, i",
+          "sec-ch-ua": "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\"",
+          "sec-ch-ua-mobile": "?0",
+          "sec-ch-ua-platform": "\"Linux\"",
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "none",
+          "sec-fetch-user": "?1",
+          "upgrade-insecure-requests": "1",
+          "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+        }
+      },
+      "slots": [
+        {
+          "param": "query",
+          "at": [
+            "query:q"
+          ]
+        }
+      ],
+      "volatile": [],
+      "trigger": {
+        "url": "https://search.brave.com/search?q={query}"
+      },
+      "match": {
+        "method": "GET",
+        "host": "search.brave.com",
+        "path": "/search"
+      },
+      "response": {
+        "format": "html",
+        "contentType": "text/html; charset=utf-8",
+        "html": {
+          "items": "#search-page .snippet[data-type=\"web\"], #results .snippet[data-type=\"web\"], .snippet[data-type=\"web\"]",
+          "fields": {
+            "title": ".search-snippet-title, .title, .snippet-title",
+            "url": "a[href^=\"http\"]@href",
+            "snippet": ".generic-snippet .content, .snippet-description, .snippet-content"
+          }
+        }
+      },
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Public web search query.",
+          "example": "typescript runtime"
+        }
+      ],
+      "readOnly": true,
+      "minTier": 1,
+      "learnedLoggedIn": false,
+      "checks": [
+        {
+          "args": {
+            "query": "rust programming"
+          },
+          "expect": "result",
+          "purpose": "A different public search query returns organic web results."
+        }
+      ]
+    }
+  ]
+}

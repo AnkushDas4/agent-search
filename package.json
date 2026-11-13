@@ -1,0 +1,49 @@
+{
+  "name": "agent-search",
+  "version": "1.0.0",
+  "description": "Zero-API-key, zero-credit-card search, extraction, crawl, and research API & MCP server powered by api-anything.",
+  "license": "MIT",
+  "author": "Ankush Das",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnkushDas4/agent-search.git"
+  },
+  "homepage": "https://github.com/AnkushDas4/agent-search",
+  "bugs": {
+    "url": "https://github.com/AnkushDas4/agent-search/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "dist/app.js",
+  "bin": {
+    "agent-search": "dist/server.js",
+    "agent-search-mcp": "dist/mcp-stdio.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.check.json --noEmit",
+    "start": "node dist/server.js",
+    "mcp": "node dist/mcp-stdio.js",
+    "test": "node --import tsx --test test/*.test.ts",
+    "verify": "bash scripts/verify.sh"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@mozilla/readability": "^0.6.0",
+    "api-anything": "^0.4.0",
+    "hono": "^4.11.0",
+    "linkedom": "^0.18.12",
+    "turndown": "^7.2.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/turndown": "^5.0.5",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

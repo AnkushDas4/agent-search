@@ -1,0 +1,21 @@
+services:
+  agent-search:
+    build: .
+    container_name: agent-search
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8787}:8787"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8787
+      - NODE_OPTIONS=--max-old-space-size=320
+      - API_ANYTHING_LOCAL_ONLY=1
+      - SEARCH_API_KEY=${SEARCH_API_KEY:-}
+      - CACHE_TTL_MS=${CACHE_TTL_MS:-900000}
+      - CACHE_MAX_ENTRIES=${CACHE_MAX_ENTRIES:-256}
+    volumes:
+      - agent_search_data:/app/data
+    mem_limit: 512m
+
+volumes:
+  agent_search_data:
