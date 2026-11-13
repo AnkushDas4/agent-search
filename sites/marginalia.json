@@ -1,0 +1,69 @@
+{
+  "name": "marginalia",
+  "displayName": "Marginalia Search",
+  "baseUrl": "https://api.marginalia.nu",
+  "description": "Public independent web search JSON API from Marginalia Search (api.marginalia.nu).",
+  "operations": [
+    {
+      "name": "search",
+      "description": "Search Marginalia's independent index via the public JSON endpoint.",
+      "request": {
+        "method": "GET",
+        "url": "https://api.marginalia.nu/public/search/%7Bquery%7D?count=10",
+        "headers": {
+          "accept": "application/json",
+          "accept-language": "en-US,en;q=0.9",
+          "user-agent": "agent-search/1.0 (+https://github.com/AnkushDas4/agent-search)"
+        }
+      },
+      "slots": [
+        {
+          "param": "query",
+          "at": [
+            "path:2"
+          ]
+        }
+      ],
+      "volatile": [],
+      "trigger": {
+        "url": "https://api.marginalia.nu/public/search/{query}?count=10"
+      },
+      "match": {
+        "method": "GET",
+        "host": "api.marginalia.nu",
+        "path": "/public/search/*"
+      },
+      "response": {
+        "format": "json",
+        "contentType": "application/json",
+        "extract": "results",
+        "pick": [
+          "url",
+          "title",
+          "description"
+        ]
+      },
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Public web search query.",
+          "example": "sqlite documentation"
+        }
+      ],
+      "readOnly": true,
+      "minTier": 1,
+      "learnedLoggedIn": false,
+      "checks": [
+        {
+          "args": {
+            "query": "linux kernel"
+          },
+          "expect": "result",
+          "purpose": "A different public search query returns results."
+        }
+      ]
+    }
+  ]
+}

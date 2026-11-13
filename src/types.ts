@@ -16,7 +16,7 @@ export const httpUrlSchema = z
 export const SearchDepthSchema = z.enum(["basic", "advanced"]);
 export type SearchDepth = z.infer<typeof SearchDepthSchema>;
 
-export const SearchTopicSchema = z.enum(["general", "news", "code"]);
+export const SearchTopicSchema = z.enum(["general", "news", "code", "research"]);
 export type SearchTopic = z.infer<typeof SearchTopicSchema>;
 
 export const SearchRequestSchema = z.object({

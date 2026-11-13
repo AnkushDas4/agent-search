@@ -333,6 +333,7 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
                   <option value="general">general</option>
                   <option value="code">code</option>
                   <option value="news">news</option>
+                  <option value="research">research</option>
                 </select>
               </div>
             </div>
@@ -455,7 +456,7 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
 
     <footer>
       <span>MIT License &copy; 2026 Ankush Das &middot; <a href="https://github.com/AnkushDas4/agent-search" target="_blank" rel="noreferrer">AnkushDas4/agent-search</a></span>
-      <span>Backends: ddg-lite, brave-search, mojeek, wikipedia, hacker-news, github</span>
+      <span>Backends: ddg-lite, startpage, marginalia, qwant, arxiv, wikipedia, hacker-news, github</span>
     </footer>
   </div>
 

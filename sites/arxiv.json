@@ -1,0 +1,76 @@
+{
+  "name": "arxiv",
+  "displayName": "arXiv",
+  "baseUrl": "https://arxiv.org",
+  "description": "Public scholarly paper search from arXiv (arxiv.org/search/).",
+  "operations": [
+    {
+      "name": "search",
+      "description": "Search arXiv preprints by keyword and extract paper title, abstract snippet, and abs URL.",
+      "request": {
+        "method": "GET",
+        "url": "https://arxiv.org/search/?query=%7Bquery%7D&searchtype=all",
+        "headers": {
+          "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          "referer": "https://arxiv.org/",
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "same-origin",
+          "upgrade-insecure-requests": "1",
+          "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+        }
+      },
+      "slots": [
+        {
+          "param": "query",
+          "at": [
+            "query:query"
+          ]
+        }
+      ],
+      "volatile": [],
+      "trigger": {
+        "url": "https://arxiv.org/search/?query={query}&searchtype=all"
+      },
+      "match": {
+        "method": "GET",
+        "host": "arxiv.org",
+        "path": "/search/"
+      },
+      "response": {
+        "format": "html",
+        "contentType": "text/html; charset=utf-8",
+        "html": {
+          "items": "li.arxiv-result",
+          "fields": {
+            "title": "p.title",
+            "url": "p.list-title a[href*='/abs/']@href, p.list-title a@href",
+            "snippet": "p.abstract span.abstract-full, p.abstract span.abstract-short, p.abstract"
+          }
+        }
+      },
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "required": true,
+          "description": "Research topic or paper query.",
+          "example": "attention is all you need"
+        }
+      ],
+      "readOnly": true,
+      "minTier": 1,
+      "learnedLoggedIn": false,
+      "checks": [
+        {
+          "args": {
+            "query": "flash attention"
+          },
+          "expect": "result",
+          "purpose": "A different research query returns arXiv papers."
+        }
+      ]
+    }
+  ]
+}

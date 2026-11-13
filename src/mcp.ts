@@ -22,7 +22,7 @@ export function createMcpServer(deps: ServiceDeps): McpServer {
     {
       title: "Web Search",
       description:
-        "Search the web across multiple zero-key engines (DuckDuckGo Lite, Brave Search, Mojeek, plus Wikipedia/Hacker News/GitHub by topic). Deduplicates, ranks by multi-engine consensus, and optionally extracts full Markdown content.",
+        "Search the web across multiple zero-key engines (Startpage, Marginalia, Qwant, DuckDuckGo Lite, arXiv, plus Wikipedia/Hacker News/GitHub by topic). Deduplicates, ranks by multi-engine consensus, and optionally extracts full Markdown content.",
       inputSchema: {
         query: z.string().trim().min(1).max(500).describe("Search query string."),
         max_results: z
@@ -36,7 +36,7 @@ export function createMcpServer(deps: ServiceDeps): McpServer {
           "Use 'basic' for fast titles/URLs/snippets or 'advanced' to also extract Markdown content for the top 5 results.",
         ),
         topic: SearchTopicSchema.default("general").describe(
-          "Search vertical: 'general' (web + Wikipedia), 'news' (web + recent Hacker News), or 'code' (web + GitHub + Hacker News).",
+          "Search vertical: 'general' (Startpage + Marginalia + Qwant + DuckDuckGo Lite + Wikipedia), 'news' (web + recent Hacker News), 'code' (DuckDuckGo Lite + Marginalia + GitHub + Hacker News), or 'research' (arXiv + Wikipedia + Startpage).",
         ),
         include_domains: z
           .array(z.string().trim().min(1))

@@ -10,7 +10,7 @@ Deploy in one click to **Vercel**, or self-host on **Android (Termux)**, **Linux
 
 ## Key Capabilities
 
-- **Multi-Engine Tier-1 Fan-Out (`maxTier: 1`)**: Searches `ddg-lite`, `brave-search`, and `mojeek` (from committed `./sites/*.json` specs) alongside `api-anything`'s bundled `wikipedia`, `hacker-news`, and `github` Tier-1 operations, with automatic direct-HTTP HTML/API fallbacks.
+- **Multi-Engine Tier-1 Fan-Out (`maxTier: 1`)**: Searches `ddg-lite`, `startpage`, `marginalia`, `qwant`, and `arxiv` (from committed `./sites/*.json` specs) alongside `api-anything`'s bundled `wikipedia`, `hacker-news`, and `github` Tier-1 operations across `general`, `news`, `code`, and `research` topics, with automatic direct-HTTP HTML/JSON fallbacks.
 - **Deduplication & Consensus Ranking**: Unwraps tracking redirects, canonicalizes URLs, boosts results found across multiple engines, and supports `include_domains` / `exclude_domains` filters.
 - **Clean Markdown Extraction**: Fetches and converts web pages via `@mozilla/readability`, `linkedom`, and `turndown` with SSRF protection (blocks private/loopback/metadata IPs and validates redirects).
 - **Same-Origin BFS Crawler & Deep Research**: Crawls up to `max_depth <= 2` / `limit <= 10` pages (`POST /v1/crawl`), or expands any topic into 3 search angles and returns a structured research context bundle with numbered citations (`POST /v1/research`).

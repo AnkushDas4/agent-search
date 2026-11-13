@@ -16,9 +16,11 @@ const TRACKING_PARAMS = new Set([
 ]);
 
 const ENGINE_WEIGHTS: Record<string, number> = {
-  "brave-search": 1.0,
   "ddg-lite": 1.0,
-  mojeek: 0.95,
+  startpage: 1.0,
+  qwant: 1.0,
+  marginalia: 0.9,
+  arxiv: 1.05,
   github: 1.05,
   "hacker-news": 0.95,
   wikipedia: 0.9,
@@ -56,6 +58,24 @@ export function unwrapResultUrl(rawUrl: string): string | null {
         return null;
       }
     }
+  }
+
+  // Filter Startpage ad/captcha redirects and unwrap Startpage proxy/redirect URLs if present
+  if (parsed.hostname.endsWith("startpage.com")) {
+    if (parsed.pathname.startsWith("/sp/captcha") || parsed.pathname.startsWith("/do/")) return null;
+    if (parsed.pathname.startsWith("/sp/")) {
+      const target = parsed.searchParams.get("url") ?? parsed.searchParams.get("u");
+      if (target) {
+        return unwrapResultUrl(target);
+      }
+      return null;
+    }
+  }
+  if (
+    parsed.hostname.includes("clickserve") ||
+    (parsed.hostname.endsWith("bing.com") && parsed.pathname.startsWith("/aclick"))
+  ) {
+    return null;
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {

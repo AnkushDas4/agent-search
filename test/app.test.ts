@@ -10,9 +10,11 @@ import { createApp } from "../src/app.js";
 import { SearchCache } from "../src/cache.js";
 import {
   fanOutSearchEngines,
-  parseBraveHtml,
+  parseArxivHtml,
   parseDdgLiteHtml,
-  parseMojeekHtml,
+  parseMarginaliaJson,
+  parseQwantJson,
+  parseStartpageHtml,
 } from "../src/search/engines.js";
 import { canonicalizeUrlForDedup, rankAndDeduplicateResults, unwrapResultUrl } from "../src/search/normalize.js";
 
@@ -28,44 +30,122 @@ const DDG_LITE_HTML = `<!DOCTYPE html>
   </table>
 </body></html>`;
 
-const BRAVE_HTML = `<!DOCTYPE html>
+const STARTPAGE_HTML = `<!DOCTYPE html>
 <html><body>
-  <main id="search-page">
-    <div class="serp-columns">
-      <div class="snippet svelte-jmfu5f" data-pos="1" data-type="web">
-        <div class="result-body"><div class="result-content">
-          <a href="https://hono.dev/docs/?utm_source=brave" class="l1">
-            <div class="title search-snippet-title">Hono Documentation</div>
-          </a>
-          <div class="generic-snippet"><div class="content">Official Hono docs and guides for Node, Vercel, and Workers.</div></div>
-        </div></div>
-      </div>
-      <div class="snippet svelte-jmfu5f" data-pos="2" data-type="web">
-        <div class="result-body"><div class="result-content">
-          <a href="https://nodejs.org/en" class="l1">
-            <div class="title search-snippet-title">Node.js Runtime</div>
-          </a>
-          <div class="generic-snippet"><div class="content">JavaScript runtime built on Chrome V8.</div></div>
-        </div></div>
+  <div id="results">
+    <div id="sponsored">
+      <div class="w-gl__result">
+        <a class="w-gl__result-title" href="https://ads.example.com/buy"><h3>Sponsored Ad</h3></a>
+        <p class="w-gl__description">Should be skipped.</p>
       </div>
     </div>
-  </main>
+    <div class="w-gl__result">
+      <div class="w-gl__result__main">
+        <a class="w-gl__result-title result-link" href="https://hono.dev/docs/?utm_source=startpage">
+          <h3>Hono Documentation</h3>
+        </a>
+        <p class="w-gl__description">Official Hono docs and guides for Node, Vercel, and Workers.</p>
+      </div>
+    </div>
+    <div class="w-gl__result">
+      <div class="w-gl__result__main">
+        <a class="w-gl__result-title result-link" href="https://nodejs.org/en">
+          <h3>Node.js Runtime</h3>
+        </a>
+        <p class="w-gl__description">JavaScript runtime built on Chrome V8.</p>
+      </div>
+    </div>
+  </div>
 </body></html>`;
 
-const MOJEEK_HTML = `<!DOCTYPE html>
+const MARGINALIA_JSON = {
+  license: "CC BY-NC-SA 4.0",
+  query: "hono",
+  results: [
+    {
+      url: "https://hono.dev/docs/",
+      title: "Hono Docs (Marginalia)",
+      description: "Independent index description of Hono web framework.",
+    },
+    {
+      url: "https://modelcontextprotocol.io/introduction",
+      title: "Model Context Protocol",
+      description: "Open protocol standardizing context for LLMs.",
+    },
+  ],
+};
+
+const QWANT_JSON = {
+  status: "success",
+  data: {
+    result: {
+      items: {
+        mainline: [
+          {
+            type: "ads",
+            items: [{ title: "Sponsored", url: "https://ads.example.com", desc: "Skip ad" }],
+          },
+          {
+            type: "web",
+            items: [
+              {
+                title: "<b>Hono</b> - Web framework",
+                url: "https://hono.dev/docs/",
+                desc: "Build fast <b>APIs</b> across runtimes.",
+              },
+              {
+                title: "Model Context Protocol",
+                url: "https://modelcontextprotocol.io/introduction",
+                desc: "Stateless Streamable HTTP MCP transport.",
+              },
+            ],
+          },
+          {
+            type: "videos",
+            items: [{ title: "Video Item", url: "https://video.example.com/1", desc: "Video" }],
+          },
+        ],
+      },
+    },
+  },
+};
+
+const ARXIV_HTML = `<!DOCTYPE html>
 <html><body>
-  <ul class="results-standard">
-    <li>
-      <a class="ob" href="https://hono.dev/docs/">hono.dev/docs/</a>
-      <h2><a class="title" href="https://hono.dev/docs/">Hono Docs (Mojeek)</a></h2>
-      <p class="s">Build fast APIs with Hono across runtimes.</p>
+  <ol class="breathe-horizontal">
+    <li class="arxiv-result">
+      <div class="is-marginless">
+        <p class="list-title is-inline-block">
+          <a href="https://arxiv.org/abs/1706.03762">arXiv:1706.03762</a>
+          <span>[<a href="https://arxiv.org/pdf/1706.03762">pdf</a>]</span>
+        </p>
+      </div>
+      <p class="title is-5 mathjax">
+        Attention Is All You Need
+      </p>
+      <p class="abstract mathjax">
+        <span class="abstract-short has-text-grey-dark mathjax">
+          The dominant sequence transduction models are based on complex recurrent networks… ▽ More
+        </span>
+        <span class="abstract-full has-text-grey-dark mathjax">
+          The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. △ Less
+        </span>
+      </p>
     </li>
-    <li>
-      <a class="ob" href="https://modelcontextprotocol.io/introduction">modelcontextprotocol.io</a>
-      <h2><a class="title" href="https://modelcontextprotocol.io/introduction">Model Context Protocol</a></h2>
-      <p class="s">Open protocol standardizing context for LLMs.</p>
+    <li class="arxiv-result">
+      <div class="is-marginless">
+        <p class="list-title is-inline-block">
+          <a href="/abs/2401.01234">arXiv:2401.01234</a>
+        </p>
+      </div>
+      <p class="title is-5 mathjax">Retrieval Augmented Agents</p>
+      <p class="abstract mathjax">
+        <span class="abstract-short has-text-grey-dark mathjax">
+          Agents combining search and extraction achieve higher accuracy. ▽ More
+        </span>
+      </p>
     </li>
-  </ul>
+  </ol>
 </body></html>`;
 
 const ARTICLE_HTML = (title: string, body: string, links: string[] = []) => `<!DOCTYPE html>
@@ -85,7 +165,7 @@ const ARTICLE_HTML = (title: string, body: string, links: string[] = []) => `<!D
 </body>
 </html>`;
 
-function createMockFetch(options: { ddg202Once?: boolean } = {}): typeof fetch {
+function createMockFetch(options: { ddg202Once?: boolean; marginalia503?: boolean } = {}): typeof fetch {
   let ddgCount = 0;
   return async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -104,18 +184,42 @@ function createMockFetch(options: { ddg202Once?: boolean } = {}): typeof fetch {
       });
     }
 
-    if (url.startsWith("https://search.brave.com/search")) {
-      return new Response(BRAVE_HTML, {
+    if (url.startsWith("https://www.startpage.com/sp/search")) {
+      return new Response(STARTPAGE_HTML, {
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8" },
       });
     }
 
-    if (url.startsWith("https://www.mojeek.com/search")) {
-      return new Response(MOJEEK_HTML, {
+    if (url.startsWith("https://api.marginalia.nu/public/search/")) {
+      if (options.marginalia503) {
+        return new Response("Service Unavailable", { status: 503 });
+      }
+      return new Response(JSON.stringify(MARGINALIA_JSON), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.startsWith("https://api.qwant.com/v3/search/web")) {
+      return new Response(JSON.stringify(QWANT_JSON), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.startsWith("https://arxiv.org/search/")) {
+      return new Response(ARXIV_HTML, {
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8" },
       });
+    }
+
+    if (url.startsWith("https://arxiv.org/abs/")) {
+      return new Response(
+        ARTICLE_HTML("Attention Is All You Need", "Transformer sequence transduction architecture paper on arXiv."),
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+      );
     }
 
     if (url.startsWith("https://en.wikipedia.org/w/")) {
@@ -126,6 +230,41 @@ function createMockFetch(options: { ddg202Once?: boolean } = {}): typeof fetch {
               { title: "Web framework", snippet: "Software framework designed to support web applications." },
             ],
           },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (url.startsWith("https://api.github.com/search/repositories")) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              full_name: "honojs/hono",
+              html_url: "https://github.com/honojs/hono",
+              description: "Web framework built on Web Standards",
+              stargazers_count: 32000,
+              language: "TypeScript",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (url.startsWith("https://hn.algolia.com/api/v1/")) {
+      return new Response(
+        JSON.stringify({
+          hits: [
+            {
+              objectID: "42000",
+              title: "Show HN: Hono Web Framework",
+              url: "https://hono.dev/docs/",
+              points: 250,
+              num_comments: 42,
+              author: "yusukebe",
+            },
+          ],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -196,7 +335,7 @@ function createMockFetch(options: { ddg202Once?: boolean } = {}): typeof fetch {
 }
 
 test("site specs in ./sites/ validate cleanly against api-anything schema", () => {
-  for (const name of ["ddg-lite", "brave-search", "mojeek"]) {
+  for (const name of ["ddg-lite", "startpage", "marginalia", "qwant", "arxiv"]) {
     const raw = JSON.parse(readFileSync(path.resolve("sites", `${name}.json`), "utf8"));
     const site = parseSite(raw);
     assert.equal(site.name, name);
@@ -205,28 +344,46 @@ test("site specs in ./sites/ validate cleanly against api-anything schema", () =
   }
 });
 
-test("HTML parsers extract organic items, skip ads, and unwrap DuckDuckGo redirect URLs", () => {
+test("provider parsers extract organic items, skip ads, and unwrap redirect URLs", () => {
   const ddg = parseDdgLiteHtml(DDG_LITE_HTML);
   assert.equal(ddg.length, 2);
   assert.equal(ddg[0]?.url, "https://hono.dev/docs/");
   assert.match(ddg[0]?.snippet ?? "", /ultrafast web framework/);
 
-  const brave = parseBraveHtml(BRAVE_HTML);
-  assert.equal(brave.length, 2);
-  assert.equal(brave[0]?.title, "Hono Documentation");
-  assert.match(brave[0]?.snippet ?? "", /Official Hono docs/);
+  const startpage = parseStartpageHtml(STARTPAGE_HTML);
+  assert.equal(startpage.length, 2);
+  assert.equal(startpage[0]?.title, "Hono Documentation");
+  assert.match(startpage[0]?.snippet ?? "", /Official Hono docs/);
+  assert.ok(!startpage.some((r) => r.title.includes("Sponsored Ad")));
 
-  const mojeek = parseMojeekHtml(MOJEEK_HTML);
-  assert.equal(mojeek.length, 2);
-  assert.equal(mojeek[1]?.url, "https://modelcontextprotocol.io/introduction");
+  const marginalia = parseMarginaliaJson(MARGINALIA_JSON);
+  assert.equal(marginalia.length, 2);
+  assert.equal(marginalia[0]?.title, "Hono Docs (Marginalia)");
+  assert.equal(marginalia[1]?.url, "https://modelcontextprotocol.io/introduction");
+
+  const qwant = parseQwantJson(QWANT_JSON);
+  assert.equal(qwant.length, 2);
+  assert.equal(qwant[0]?.title, "Hono - Web framework");
+  assert.equal(qwant[0]?.snippet, "Build fast APIs across runtimes.");
+  assert.ok(!qwant.some((r) => r.url.includes("ads.example.com") || r.url.includes("video.example.com")));
+
+  const arxiv = parseArxivHtml(ARXIV_HTML);
+  assert.equal(arxiv.length, 2);
+  assert.equal(arxiv[0]?.title, "Attention Is All You Need");
+  assert.equal(arxiv[0]?.url, "https://arxiv.org/abs/1706.03762");
+  assert.match(arxiv[0]?.snippet ?? "", /complex recurrent or convolutional neural networks\./);
+  assert.ok(!(arxiv[0]?.snippet ?? "").includes("Less"));
+  assert.equal(arxiv[1]?.url, "https://arxiv.org/abs/2401.01234");
+  assert.ok(!(arxiv[1]?.snippet ?? "").includes("More"));
 
   assert.equal(
     unwrapResultUrl("//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fabc"),
     "https://example.com/abc",
   );
   assert.equal(unwrapResultUrl("https://duckduckgo.com/y.js?ad=1"), null);
+  assert.equal(unwrapResultUrl("https://www.startpage.com/sp/captcha"), null);
   assert.equal(
-    canonicalizeUrlForDedup("https://www.hono.dev/docs/?utm_source=brave#top"),
+    canonicalizeUrlForDedup("https://www.hono.dev/docs/?utm_source=startpage#top"),
     "https://hono.dev/docs",
   );
 });
@@ -242,19 +399,19 @@ test("multi-engine ranking boosts consensus URLs and respects domain filters", (
         ],
       },
       {
-        source: "brave-search",
+        source: "startpage",
         items: [
           {
             title: "Node.js",
             url: "https://nodejs.org/en",
             snippet: "Runtime",
-            source: "brave-search",
+            source: "startpage",
           },
           {
             title: "Hono Docs",
-            url: "https://www.hono.dev/docs/?utm_source=brave",
-            snippet: "Longer descriptive snippet from Brave",
-            source: "brave-search",
+            url: "https://www.hono.dev/docs/?utm_source=startpage",
+            snippet: "Longer descriptive snippet from Startpage",
+            source: "startpage",
           },
         ],
       },
@@ -263,8 +420,8 @@ test("multi-engine ranking boosts consensus URLs and respects domain filters", (
   );
 
   assert.equal(ranked[0]?.url, "https://hono.dev/docs/");
-  assert.equal(ranked[0]?.source, "ddg-lite, brave-search");
-  assert.equal(ranked[0]?.snippet, "Longer descriptive snippet from Brave");
+  assert.equal(ranked[0]?.source, "ddg-lite, startpage");
+  assert.equal(ranked[0]?.snippet, "Longer descriptive snippet from Startpage");
 
   const filtered = rankAndDeduplicateResults(
     [
@@ -282,17 +439,43 @@ test("multi-engine ranking boosts consensus URLs and respects domain filters", (
   assert.equal(filtered[0]?.url, "https://github.com/honojs/hono");
 });
 
-test("fanOutSearchEngines handles api-anything Tier-1 calls and falls back cleanly on HTTP 202", async () => {
+test("fanOutSearchEngines routes general, code, and research topics and handles HTTP 202 / 503 gracefully", async () => {
   const testHome = mkdtempSync(path.join(os.tmpdir(), "agent-search-fanout-"));
   const prevHome = process.env.API_ANYTHING_HOME;
   process.env.API_ANYTHING_HOME = testHome;
   try {
     const mockFetch = createMockFetch({ ddg202Once: true });
-    const batches = await fanOutSearchEngines("hono", "general", { fetchImpl: mockFetch });
-    const bySource = Object.fromEntries(batches.map((b) => [b.source, b.items]));
-    assert.equal(bySource["ddg-lite"]?.length, 2);
-    assert.equal(bySource["brave-search"]?.length, 2);
-    assert.equal(bySource["mojeek"]?.length, 2);
+    const generalBatches = await fanOutSearchEngines("hono", "general", { fetchImpl: mockFetch });
+    const byGeneral = Object.fromEntries(generalBatches.map((b) => [b.source, b.items]));
+    assert.equal(byGeneral["ddg-lite"]?.length, 2);
+    assert.equal(byGeneral.startpage?.length, 2);
+    assert.equal(byGeneral.marginalia?.length, 2);
+    assert.equal(byGeneral.qwant?.length, 2);
+    assert.equal(byGeneral.wikipedia?.length, 1);
+
+    // Rate-limited Marginalia (HTTP 503) returns empty without breaking other engines
+    const rateLimitedFetch = createMockFetch({ marginalia503: true });
+    const degradedBatches = await fanOutSearchEngines("hono", "general", { fetchImpl: rateLimitedFetch });
+    const byDegraded = Object.fromEntries(degradedBatches.map((b) => [b.source, b.items]));
+    assert.equal(byDegraded.marginalia?.length, 0);
+    assert.equal(byDegraded.startpage?.length, 2);
+    assert.equal(byDegraded.qwant?.length, 2);
+
+    const codeBatches = await fanOutSearchEngines("hono", "code", { fetchImpl: mockFetch });
+    const byCode = Object.fromEntries(codeBatches.map((b) => [b.source, b.items]));
+    assert.equal(byCode["ddg-lite"]?.length, 2);
+    assert.equal(byCode.marginalia?.length, 2);
+    assert.equal(byCode.github?.length, 1);
+    assert.equal(byCode["hacker-news"]?.length, 1);
+
+    const researchBatches = await fanOutSearchEngines("attention transformers", "research", {
+      fetchImpl: mockFetch,
+    });
+    const byResearch = Object.fromEntries(researchBatches.map((b) => [b.source, b.items]));
+    assert.deepEqual(Object.keys(byResearch).sort(), ["arxiv", "startpage", "wikipedia"]);
+    assert.equal(byResearch.arxiv?.length, 2);
+    assert.equal(byResearch.wikipedia?.length, 1);
+    assert.equal(byResearch.startpage?.length, 2);
   } finally {
     if (prevHome === undefined) delete process.env.API_ANYTHING_HOME;
     else process.env.API_ANYTHING_HOME = prevHome;
@@ -334,6 +517,8 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     const html = await uiRes.text();
     assert.match(html, /#09090b/);
     assert.match(html, /#06b6d4/);
+    assert.match(html, /<option value="research">research<\/option>/);
+    assert.match(html, /startpage, marginalia, qwant, arxiv/);
     const scriptMatch = /<script>([\s\S]*?)<\/script>/.exec(html);
     assert.ok(scriptMatch?.[1], "expected inline script in playground HTML");
     assert.doesNotThrow(() => new Function(scriptMatch[1]!));
@@ -341,16 +526,27 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     // Health & OpenAPI
     const healthRes = await app.request("/health");
     assert.equal(healthRes.status, 200);
-    const health = (await healthRes.json()) as { status: string; providers: unknown[] };
+    const health = (await healthRes.json()) as { status: string; providers: Array<{ name: string }> };
     assert.equal(health.status, "ok");
-    assert.ok(health.providers.length >= 6);
+    const providerNames = health.providers.map((p) => p.name);
+    for (const expected of ["ddg-lite", "startpage", "marginalia", "qwant", "arxiv", "wikipedia", "hacker-news", "github"]) {
+      assert.ok(providerNames.includes(expected), `missing provider ${expected}`);
+    }
 
     const openApiRes = await app.request("/openapi.json");
     assert.equal(openApiRes.status, 200);
-    const openApi = (await openApiRes.json()) as { openapi: string; paths: Record<string, unknown> };
+    const openApi = (await openApiRes.json()) as {
+      openapi: string;
+      paths: Record<string, unknown>;
+      components: { schemas: { SearchRequest: { properties: { topic: { enum: string[] } } } } };
+    };
     assert.equal(openApi.openapi, "3.1.0");
     assert.ok("/v1/search" in openApi.paths);
     assert.ok("/mcp" in openApi.paths);
+    assert.deepEqual(
+      openApi.components.schemas.SearchRequest.properties.topic.enum,
+      ["general", "news", "code", "research"],
+    );
 
     // POST /v1/search (advanced -> attaches Markdown content)
     const searchRes = await app.request("/v1/search", {
@@ -372,6 +568,19 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     assert.equal(searchGetRes.status, 200);
     const searchGetJson = (await searchGetRes.json()) as { cached: boolean };
     assert.equal(searchGetJson.cached, true);
+
+    // POST /v1/search with topic="research" (hits arxiv + wikipedia + startpage)
+    const researchTopicRes = await app.request("/v1/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "transformers", topic: "research", max_results: 10 }),
+    });
+    assert.equal(researchTopicRes.status, 200);
+    const researchTopicJson = (await researchTopicRes.json()) as {
+      results: Array<{ url: string; source: string }>;
+    };
+    assert.ok(researchTopicJson.results.some((r) => r.source.includes("arxiv")));
+    assert.ok(researchTopicJson.results.some((r) => r.url.startsWith("https://arxiv.org/abs/")));
 
     // POST /v1/extract (including SSRF block & 404 failure)
     const extractRes = await app.request("/v1/extract", {
@@ -493,7 +702,7 @@ test("Stateless Streamable HTTP MCP endpoint handles POST tools/list + tools/cal
         method: "tools/call",
         params: {
           name: "web_search",
-          arguments: { query: "hono", max_results: 3 },
+          arguments: { query: "transformers", topic: "research", max_results: 4 },
         },
       }),
     });
@@ -501,8 +710,11 @@ test("Stateless Streamable HTTP MCP endpoint handles POST tools/list + tools/cal
     const callJson = (await callRes.json()) as {
       result: { content: Array<{ type: string; text: string }> };
     };
-    const parsedToolPayload = JSON.parse(callJson.result.content[0]!.text) as { results: unknown[] };
-    assert.ok(parsedToolPayload.results.length >= 2);
+    const parsedToolPayload = JSON.parse(callJson.result.content[0]!.text) as {
+      results: Array<{ source: string }>;
+    };
+    assert.ok(parsedToolPayload.results.length >= 3);
+    assert.ok(parsedToolPayload.results.some((r) => r.source.includes("arxiv")));
   } finally {
     if (prevHome === undefined) delete process.env.API_ANYTHING_HOME;
     else process.env.API_ANYTHING_HOME = prevHome;
