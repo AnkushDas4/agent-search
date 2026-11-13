@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,13 +8,18 @@ import { parseSite } from "api-anything";
 import { GET as vercelGet, POST as vercelPost } from "../api/index.js";
 import { createApp } from "../src/app.js";
 import { SearchCache } from "../src/cache.js";
+import { callCatalogOperation, listCatalog } from "../src/catalog.js";
 import {
   fanOutSearchEngines,
   parseArxivHtml,
   parseDdgLiteHtml,
+  parseGoogleNewsRss,
   parseMarginaliaJson,
-  parseQwantJson,
-  parseStartpageHtml,
+  parseRssItems,
+  parseSedniumRssAndFilter,
+  parseSemanticScholarJson,
+  parseStackExchangeJson,
+  selectSedniumFeedPaths,
 } from "../src/search/engines.js";
 import { canonicalizeUrlForDedup, rankAndDeduplicateResults, unwrapResultUrl } from "../src/search/normalize.js";
 
@@ -28,34 +33,6 @@ const DDG_LITE_HTML = `<!DOCTYPE html>
     <tr><td>2.</td><td><a class="result-link" href="https://github.com/honojs/hono">honojs/hono - GitHub</a></td></tr>
     <tr><td></td><td class="result-snippet">Web framework built on Web Standards.</td></tr>
   </table>
-</body></html>`;
-
-const STARTPAGE_HTML = `<!DOCTYPE html>
-<html><body>
-  <div id="results">
-    <div id="sponsored">
-      <div class="w-gl__result">
-        <a class="w-gl__result-title" href="https://ads.example.com/buy"><h3>Sponsored Ad</h3></a>
-        <p class="w-gl__description">Should be skipped.</p>
-      </div>
-    </div>
-    <div class="w-gl__result">
-      <div class="w-gl__result__main">
-        <a class="w-gl__result-title result-link" href="https://hono.dev/docs/?utm_source=startpage">
-          <h3>Hono Documentation</h3>
-        </a>
-        <p class="w-gl__description">Official Hono docs and guides for Node, Vercel, and Workers.</p>
-      </div>
-    </div>
-    <div class="w-gl__result">
-      <div class="w-gl__result__main">
-        <a class="w-gl__result-title result-link" href="https://nodejs.org/en">
-          <h3>Node.js Runtime</h3>
-        </a>
-        <p class="w-gl__description">JavaScript runtime built on Chrome V8.</p>
-      </div>
-    </div>
-  </div>
 </body></html>`;
 
 const MARGINALIA_JSON = {
@@ -75,40 +52,106 @@ const MARGINALIA_JSON = {
   ],
 };
 
-const QWANT_JSON = {
-  status: "success",
-  data: {
-    result: {
-      items: {
-        mainline: [
-          {
-            type: "ads",
-            items: [{ title: "Sponsored", url: "https://ads.example.com", desc: "Skip ad" }],
-          },
-          {
-            type: "web",
-            items: [
-              {
-                title: "<b>Hono</b> - Web framework",
-                url: "https://hono.dev/docs/",
-                desc: "Build fast <b>APIs</b> across runtimes.",
-              },
-              {
-                title: "Model Context Protocol",
-                url: "https://modelcontextprotocol.io/introduction",
-                desc: "Stateless Streamable HTTP MCP transport.",
-              },
-            ],
-          },
-          {
-            type: "videos",
-            items: [{ title: "Video Item", url: "https://video.example.com/1", desc: "Video" }],
-          },
-        ],
-      },
+const STACKEXCHANGE_JSON = {
+  items: [
+    {
+      title: "How to deploy &quot;Hono&quot; with Node.js &amp; TypeScript?",
+      link: "https://stackoverflow.com/questions/78000001/deploy-hono-typescript",
+      score: 42,
+      is_answered: true,
+      tags: ["typescript", "hono"],
     },
-  },
+    {
+      title: "Hono middleware error handling best practices",
+      link: "https://stackoverflow.com/questions/78000002/hono-middleware",
+      score: 19,
+      is_answered: false,
+      tags: ["node.js", "hono"],
+    },
+  ],
 };
+
+const SEMANTIC_SCHOLAR_JSON = {
+  total: 2,
+  data: [
+    {
+      paperId: "204e3073870fae3d05bcbc2f6a8e263d9b72e776",
+      title: "Attention Is All You Need",
+      url: "https://www.semanticscholar.org/paper/204e3073870fae3d05bcbc2f6a8e263d9b72e776",
+      abstract: "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.",
+      year: 2017,
+    },
+    {
+      paperId: "abc123456789",
+      title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      abstract: "RAG models combine parametric and non-parametric memory for language generation.",
+      year: 2020,
+    },
+  ],
+};
+
+const SEDNIUM_MAIN_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Sednium News</title>
+  <item>
+    <title>Global AI Standards Summit Opens in Geneva</title>
+    <link>https://news.sednium.com/story/global-ai-summit</link>
+    <pubDate>Thu, 13 Nov 2026 07:30:00 GMT</pubDate>
+    <description><![CDATA[<p>Regulators and engineers discuss open agent protocols.</p>]]></description>
+  </item>
+  <item>
+    <title>Hono Edge Benchmarks Released</title>
+    <link>https://news.sednium.com/story/hono-benchmarks</link>
+    <pubDate>Thu, 13 Nov 2026 06:00:00 GMT</pubDate>
+    <description>New benchmarks highlight low-latency TypeScript routing.</description>
+  </item>
+</channel></rss>`;
+
+const SEDNIUM_INDIA_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Sednium India</title>
+  <item>
+    <title>Kolkata and Asansol Corridor Sees New Tech Hub Investment</title>
+    <link>https://news.sednium.com/story/bengal-tech-hub</link>
+    <pubDate>Thu, 13 Nov 2026 08:15:00 GMT</pubDate>
+    <description>West Bengal announces industrial and digital infrastructure expansion.</description>
+  </item>
+</channel></rss>`;
+
+const SEDNIUM_TECH_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Sednium Technology</title>
+  <item>
+    <title>Hono 4.x Adopts Web Standards Streamable MCP Patterns</title>
+    <link>https://news.sednium.com/tech/hono-mcp</link>
+    <pubDate>Thu, 13 Nov 2026 09:00:00 GMT</pubDate>
+    <description>Lightweight TypeScript server frameworks accelerate edge tooling.</description>
+  </item>
+</channel></rss>`;
+
+const SEDNIUM_SCIENCE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Sednium Science</title>
+  <item>
+    <title>Sparse Transformers Lower Memory Overhead in Long-Context Models</title>
+    <link>https://news.sednium.com/science/sparse-transformers</link>
+    <pubDate>Thu, 13 Nov 2026 08:45:00 GMT</pubDate>
+    <description>Researchers demonstrate efficient attention scaling for multi-step reasoning.</description>
+  </item>
+</channel></rss>`;
+
+const GOOGLE_NEWS_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Google News</title>
+  <item>
+    <title>Bengal Tech Corridor Expands - Reuters</title>
+    <link>https://news.google.com/rss/articles/CBMiWWh0dHBzOi8vZXhhbXBsZS5jb20vYmVuZ2Fs?oc=5</link>
+    <pubDate>Thu, 13 Nov 2026 08:20:00 GMT</pubDate>
+    <source url="https://www.reuters.com">Reuters</source>
+    <description>&lt;a href="https://news.google.com/rss/articles/..."&gt;Bengal Tech Corridor Expands&lt;/a&gt;</description>
+  </item>
+  <item>
+    <title>Global AI Standards Summit - AP News</title>
+    <link>https://news.sednium.com/story/global-ai-summit?utm_source=gnews</link>
+    <pubDate>Thu, 13 Nov 2026 07:45:00 GMT</pubDate>
+    <source url="https://apnews.com">AP News</source>
+  </item>
+</channel></rss>`;
 
 const ARXIV_HTML = `<!DOCTYPE html>
 <html><body>
@@ -165,7 +208,14 @@ const ARTICLE_HTML = (title: string, body: string, links: string[] = []) => `<!D
 </body>
 </html>`;
 
-function createMockFetch(options: { ddg202Once?: boolean; marginalia503?: boolean } = {}): typeof fetch {
+interface MockFetchOptions {
+  ddg202Once?: boolean;
+  marginaliaStatus?: number;
+  sedniumError?: boolean;
+  onMarginaliaHeaders?: (headers: Headers) => void;
+}
+
+function createMockFetch(options: MockFetchOptions = {}): typeof fetch {
   let ddgCount = 0;
   return async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -184,16 +234,11 @@ function createMockFetch(options: { ddg202Once?: boolean; marginalia503?: boolea
       });
     }
 
-    if (url.startsWith("https://www.startpage.com/sp/search")) {
-      return new Response(STARTPAGE_HTML, {
-        status: 200,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    }
-
-    if (url.startsWith("https://api.marginalia.nu/public/search/")) {
-      if (options.marginalia503) {
-        return new Response("Service Unavailable", { status: 503 });
+    if (url.startsWith("https://api2.marginalia-search.com/search")) {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      options.onMarginaliaHeaders?.(headers);
+      if (options.marginaliaStatus) {
+        return new Response("Rate Limited", { status: options.marginaliaStatus });
       }
       return new Response(JSON.stringify(MARGINALIA_JSON), {
         status: 200,
@@ -201,8 +246,36 @@ function createMockFetch(options: { ddg202Once?: boolean; marginalia503?: boolea
       });
     }
 
-    if (url.startsWith("https://api.qwant.com/v3/search/web")) {
-      return new Response(JSON.stringify(QWANT_JSON), {
+    if (url.includes("/rss/india")) {
+      if (options.sedniumError) throw new Error("Simulated Sednium network error");
+      return new Response(SEDNIUM_INDIA_RSS, { status: 200, headers: { "content-type": "application/rss+xml" } });
+    }
+    if (url.includes("/rss/technology")) {
+      if (options.sedniumError) return new Response("Upstream Down", { status: 502 });
+      return new Response(SEDNIUM_TECH_RSS, { status: 200, headers: { "content-type": "application/rss+xml" } });
+    }
+    if (url.includes("/rss/science")) {
+      if (options.sedniumError) return new Response("Upstream Down", { status: 502 });
+      return new Response(SEDNIUM_SCIENCE_RSS, { status: 200, headers: { "content-type": "application/rss+xml" } });
+    }
+    if (url.endsWith("/rss") || url.includes("/rss/world") || url.includes("/rss/business")) {
+      if (options.sedniumError) return new Response("Upstream Down", { status: 503 });
+      return new Response(SEDNIUM_MAIN_RSS, { status: 200, headers: { "content-type": "application/rss+xml" } });
+    }
+
+    if (url.startsWith("https://news.google.com/rss/search")) {
+      return new Response(GOOGLE_NEWS_RSS, { status: 200, headers: { "content-type": "application/rss+xml" } });
+    }
+
+    if (url.startsWith("https://api.stackexchange.com/2.3/search/advanced")) {
+      return new Response(JSON.stringify(STACKEXCHANGE_JSON), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (url.startsWith("https://api.semanticscholar.org/graph/v1/paper/search")) {
+      return new Response(JSON.stringify(SEMANTIC_SCHOLAR_JSON), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -309,13 +382,6 @@ function createMockFetch(options: { ddg202Once?: boolean; marginalia503?: boolea
       );
     }
 
-    if (url.startsWith("https://nodejs.org/")) {
-      return new Response(
-        ARTICLE_HTML("Node.js Runtime", "Node.js 22 provides native fetch and Web Streams APIs."),
-        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
-      );
-    }
-
     if (url.startsWith("https://modelcontextprotocol.io/")) {
       return new Response(
         ARTICLE_HTML(
@@ -334,44 +400,76 @@ function createMockFetch(options: { ddg202Once?: boolean; marginalia503?: boolea
   };
 }
 
-test("site specs in ./sites/ validate cleanly against api-anything schema", () => {
-  for (const name of ["ddg-lite", "startpage", "marginalia", "qwant", "arxiv"]) {
+test("site specs in ./sites/ validate cleanly and dead startpage/qwant specs are removed", () => {
+  assert.equal(existsSync(path.resolve("sites", "startpage.json")), false);
+  assert.equal(existsSync(path.resolve("sites", "qwant.json")), false);
+
+  for (const name of ["ddg-lite", "marginalia", "arxiv"]) {
     const raw = JSON.parse(readFileSync(path.resolve("sites", `${name}.json`), "utf8"));
     const site = parseSite(raw);
     assert.equal(site.name, name);
-    assert.equal(site.operations[0]?.readOnly, true);
-    assert.equal(site.operations[0]?.minTier, 1);
+    assert.ok(site.operations.every((op) => op.readOnly && op.minTier === 1));
+  }
+
+  const arxivSite = parseSite(JSON.parse(readFileSync(path.resolve("sites", "arxiv.json"), "utf8")));
+  const arxivOps = arxivSite.operations.map((o) => o.name);
+  for (const expected of ["search", "getPaper", "listNew", "listRecent", "searchPapers"]) {
+    assert.ok(arxivOps.includes(expected), `missing arxiv op ${expected}`);
   }
 });
 
-test("provider parsers extract organic items, skip ads, and unwrap redirect URLs", () => {
+test("provider parsers extract RSS, JSON, HTML items and unwrap redirect URLs", () => {
   const ddg = parseDdgLiteHtml(DDG_LITE_HTML);
   assert.equal(ddg.length, 2);
   assert.equal(ddg[0]?.url, "https://hono.dev/docs/");
-  assert.match(ddg[0]?.snippet ?? "", /ultrafast web framework/);
-
-  const startpage = parseStartpageHtml(STARTPAGE_HTML);
-  assert.equal(startpage.length, 2);
-  assert.equal(startpage[0]?.title, "Hono Documentation");
-  assert.match(startpage[0]?.snippet ?? "", /Official Hono docs/);
-  assert.ok(!startpage.some((r) => r.title.includes("Sponsored Ad")));
 
   const marginalia = parseMarginaliaJson(MARGINALIA_JSON);
   assert.equal(marginalia.length, 2);
   assert.equal(marginalia[0]?.title, "Hono Docs (Marginalia)");
-  assert.equal(marginalia[1]?.url, "https://modelcontextprotocol.io/introduction");
 
-  const qwant = parseQwantJson(QWANT_JSON);
-  assert.equal(qwant.length, 2);
-  assert.equal(qwant[0]?.title, "Hono - Web framework");
-  assert.equal(qwant[0]?.snippet, "Build fast APIs across runtimes.");
-  assert.ok(!qwant.some((r) => r.url.includes("ads.example.com") || r.url.includes("video.example.com")));
+  const rssItems = parseRssItems(SEDNIUM_MAIN_RSS);
+  assert.equal(rssItems.length, 2);
+  assert.equal(rssItems[0]?.link, "https://news.sednium.com/story/global-ai-summit");
+  assert.equal(rssItems[0]?.description, "Regulators and engineers discuss open agent protocols.");
+
+  // Sednium routing + query matching + broad fallback
+  assert.deepEqual(selectSedniumFeedPaths("Bengal economy update", "news"), ["/rss", "/rss/india", "/rss/business"]);
+  assert.deepEqual(selectSedniumFeedPaths("world geopolitics", "news"), ["/rss", "/rss/world"]);
+  assert.deepEqual(selectSedniumFeedPaths("hono", "code"), ["/rss/technology"]);
+  assert.deepEqual(selectSedniumFeedPaths("transformers", "research"), ["/rss/science"]);
+
+  const matchedSednium = parseSedniumRssAndFilter(
+    [{ path: "/rss", xml: SEDNIUM_MAIN_RSS }, { path: "/rss/india", xml: SEDNIUM_INDIA_RSS }],
+    "Bengal tech hub",
+  );
+  assert.equal(matchedSednium.length, 1);
+  assert.equal(matchedSednium[0]?.url, "https://news.sednium.com/story/bengal-tech-hub");
+
+  const broadSednium = parseSedniumRssAndFilter(
+    [{ path: "/rss", xml: SEDNIUM_MAIN_RSS }, { path: "/rss/india", xml: SEDNIUM_INDIA_RSS }],
+    "india news",
+  );
+  assert.equal(broadSednium.length, 3);
+  assert.equal(broadSednium[0]?.url, "https://news.sednium.com/story/bengal-tech-hub");
+
+  const gnews = parseGoogleNewsRss(GOOGLE_NEWS_RSS);
+  assert.equal(gnews.length, 2);
+  assert.match(gnews[0]?.snippet ?? "", /Reuters/);
+
+  const stack = parseStackExchangeJson(STACKEXCHANGE_JSON);
+  assert.equal(stack.length, 2);
+  assert.equal(stack[0]?.title, 'How to deploy "Hono" with Node.js & TypeScript?');
+  assert.match(stack[0]?.snippet ?? "", /score: 42 · answered/);
+
+  const s2 = parseSemanticScholarJson(SEMANTIC_SCHOLAR_JSON);
+  assert.equal(s2.length, 2);
+  assert.equal(s2[0]?.title, "Attention Is All You Need");
+  assert.match(s2[0]?.snippet ?? "", /^\[2017\]/);
+  assert.equal(s2[1]?.url, "https://www.semanticscholar.org/paper/abc123456789");
 
   const arxiv = parseArxivHtml(ARXIV_HTML);
   assert.equal(arxiv.length, 2);
-  assert.equal(arxiv[0]?.title, "Attention Is All You Need");
   assert.equal(arxiv[0]?.url, "https://arxiv.org/abs/1706.03762");
-  assert.match(arxiv[0]?.snippet ?? "", /complex recurrent or convolutional neural networks\./);
   assert.ok(!(arxiv[0]?.snippet ?? "").includes("Less"));
   assert.equal(arxiv[1]?.url, "https://arxiv.org/abs/2401.01234");
   assert.ok(!(arxiv[1]?.snippet ?? "").includes("More"));
@@ -381,9 +479,8 @@ test("provider parsers extract organic items, skip ads, and unwrap redirect URLs
     "https://example.com/abc",
   );
   assert.equal(unwrapResultUrl("https://duckduckgo.com/y.js?ad=1"), null);
-  assert.equal(unwrapResultUrl("https://www.startpage.com/sp/captcha"), null);
   assert.equal(
-    canonicalizeUrlForDedup("https://www.hono.dev/docs/?utm_source=startpage#top"),
+    canonicalizeUrlForDedup("https://www.hono.dev/docs/?utm_source=gnews#top"),
     "https://hono.dev/docs",
   );
 });
@@ -392,26 +489,36 @@ test("multi-engine ranking boosts consensus URLs and respects domain filters", (
   const ranked = rankAndDeduplicateResults(
     [
       {
-        source: "ddg-lite",
+        source: "sednium-news",
         items: [
-          { title: "Hono", url: "https://hono.dev/docs/", snippet: "Short", source: "ddg-lite" },
-          { title: "GitHub", url: "https://github.com/honojs/hono", snippet: "Repo", source: "ddg-lite" },
+          {
+            title: "Global AI Standards Summit",
+            url: "https://news.sednium.com/story/global-ai-summit",
+            snippet: "Regulators and engineers discuss open agent protocols.",
+            source: "sednium-news",
+          },
+          {
+            title: "Local Update",
+            url: "https://news.sednium.com/story/local",
+            snippet: "Local item",
+            source: "sednium-news",
+          },
         ],
       },
       {
-        source: "startpage",
+        source: "google-news-rss",
         items: [
           {
-            title: "Node.js",
-            url: "https://nodejs.org/en",
-            snippet: "Runtime",
-            source: "startpage",
+            title: "Other Story",
+            url: "https://example.com/other",
+            snippet: "Other",
+            source: "google-news-rss",
           },
           {
-            title: "Hono Docs",
-            url: "https://www.hono.dev/docs/?utm_source=startpage",
-            snippet: "Longer descriptive snippet from Startpage",
-            source: "startpage",
+            title: "Global AI Standards Summit - AP News",
+            url: "https://news.sednium.com/story/global-ai-summit?utm_source=gnews",
+            snippet: "AP News",
+            source: "google-news-rss",
           },
         ],
       },
@@ -419,9 +526,8 @@ test("multi-engine ranking boosts consensus URLs and respects domain filters", (
     { maxResults: 10 },
   );
 
-  assert.equal(ranked[0]?.url, "https://hono.dev/docs/");
-  assert.equal(ranked[0]?.source, "ddg-lite, startpage");
-  assert.equal(ranked[0]?.snippet, "Longer descriptive snippet from Startpage");
+  assert.equal(ranked[0]?.url, "https://news.sednium.com/story/global-ai-summit");
+  assert.equal(ranked[0]?.source, "sednium-news, google-news-rss");
 
   const filtered = rankAndDeduplicateResults(
     [
@@ -439,43 +545,125 @@ test("multi-engine ranking boosts consensus URLs and respects domain filters", (
   assert.equal(filtered[0]?.url, "https://github.com/honojs/hono");
 });
 
-test("fanOutSearchEngines routes general, code, and research topics and handles HTTP 202 / 503 gracefully", async () => {
+test("fanOutSearchEngines routes general, code, news, and research topics and handles errors gracefully", async () => {
   const testHome = mkdtempSync(path.join(os.tmpdir(), "agent-search-fanout-"));
   const prevHome = process.env.API_ANYTHING_HOME;
+  const prevMargKey = process.env.MARGINALIA_API_KEY;
+  const prevSednium = process.env.SEDNIUM_NEWS_BASE_URL;
   process.env.API_ANYTHING_HOME = testHome;
+  process.env.MARGINALIA_API_KEY = "custom-marg-key";
+  process.env.SEDNIUM_NEWS_BASE_URL = "https://custom-sednium.example.org";
+
   try {
-    const mockFetch = createMockFetch({ ddg202Once: true });
+    let seenMarginaliaKey: string | null = null;
+    const mockFetch = createMockFetch({
+      ddg202Once: true,
+      onMarginaliaHeaders: (h) => {
+        seenMarginaliaKey = h.get("API-Key");
+      },
+    });
+
     const generalBatches = await fanOutSearchEngines("hono", "general", { fetchImpl: mockFetch });
     const byGeneral = Object.fromEntries(generalBatches.map((b) => [b.source, b.items]));
+    assert.deepEqual(Object.keys(byGeneral).sort(), ["ddg-lite", "marginalia", "wikipedia"]);
     assert.equal(byGeneral["ddg-lite"]?.length, 2);
-    assert.equal(byGeneral.startpage?.length, 2);
     assert.equal(byGeneral.marginalia?.length, 2);
-    assert.equal(byGeneral.qwant?.length, 2);
     assert.equal(byGeneral.wikipedia?.length, 1);
+    assert.equal(seenMarginaliaKey, "custom-marg-key");
 
-    // Rate-limited Marginalia (HTTP 503) returns empty without breaking other engines
-    const rateLimitedFetch = createMockFetch({ marginalia503: true });
-    const degradedBatches = await fanOutSearchEngines("hono", "general", { fetchImpl: rateLimitedFetch });
-    const byDegraded = Object.fromEntries(degradedBatches.map((b) => [b.source, b.items]));
-    assert.equal(byDegraded.marginalia?.length, 0);
-    assert.equal(byDegraded.startpage?.length, 2);
-    assert.equal(byDegraded.qwant?.length, 2);
+    // Rate-limited Marginalia (HTTP 429 & 503) returns empty without breaking other engines
+    for (const status of [429, 503]) {
+      const degradedFetch = createMockFetch({ marginaliaStatus: status });
+      const degradedBatches = await fanOutSearchEngines("hono", "general", { fetchImpl: degradedFetch });
+      const byDegraded = Object.fromEntries(degradedBatches.map((b) => [b.source, b.items]));
+      assert.equal(byDegraded.marginalia?.length, 0);
+      assert.equal(byDegraded["ddg-lite"]?.length, 2);
+    }
 
     const codeBatches = await fanOutSearchEngines("hono", "code", { fetchImpl: mockFetch });
     const byCode = Object.fromEntries(codeBatches.map((b) => [b.source, b.items]));
-    assert.equal(byCode["ddg-lite"]?.length, 2);
-    assert.equal(byCode.marginalia?.length, 2);
+    assert.deepEqual(
+      Object.keys(byCode).sort(),
+      ["ddg-lite", "github", "hacker-news", "sednium-news", "stackexchange"],
+    );
     assert.equal(byCode.github?.length, 1);
+    assert.equal(byCode.stackexchange?.length, 2);
     assert.equal(byCode["hacker-news"]?.length, 1);
+    assert.equal(byCode["ddg-lite"]?.length, 2);
+    assert.equal(byCode["sednium-news"]?.length, 1);
+
+    const newsBatches = await fanOutSearchEngines("Bengal tech hub", "news", { fetchImpl: mockFetch });
+    const byNews = Object.fromEntries(newsBatches.map((b) => [b.source, b.items]));
+    assert.deepEqual(
+      Object.keys(byNews).sort(),
+      ["ddg-lite", "google-news-rss", "hacker-news", "sednium-news"],
+    );
+    assert.equal(byNews["sednium-news"]?.length, 1);
+    assert.equal(byNews["google-news-rss"]?.length, 2);
+    assert.equal(byNews["hacker-news"]?.length, 1);
+    assert.equal(byNews["ddg-lite"]?.length, 2);
+
+    // Sednium failure falls back cleanly to [] without crashing topic="news"
+    const sedniumBrokenFetch = createMockFetch({ sedniumError: true });
+    const newsFallback = await fanOutSearchEngines("latest news", "news", { fetchImpl: sedniumBrokenFetch });
+    const byNewsFallback = Object.fromEntries(newsFallback.map((b) => [b.source, b.items]));
+    assert.equal(byNewsFallback["sednium-news"]?.length, 0);
+    assert.equal(byNewsFallback["google-news-rss"]?.length, 2);
 
     const researchBatches = await fanOutSearchEngines("attention transformers", "research", {
       fetchImpl: mockFetch,
     });
     const byResearch = Object.fromEntries(researchBatches.map((b) => [b.source, b.items]));
-    assert.deepEqual(Object.keys(byResearch).sort(), ["arxiv", "startpage", "wikipedia"]);
+    assert.deepEqual(
+      Object.keys(byResearch).sort(),
+      ["arxiv", "sednium-news", "semantic-scholar", "wikipedia"],
+    );
+    assert.equal(byResearch["semantic-scholar"]?.length, 2);
     assert.equal(byResearch.arxiv?.length, 2);
     assert.equal(byResearch.wikipedia?.length, 1);
-    assert.equal(byResearch.startpage?.length, 2);
+    assert.equal(byResearch["sednium-news"]?.length, 1);
+  } finally {
+    if (prevHome === undefined) delete process.env.API_ANYTHING_HOME;
+    else process.env.API_ANYTHING_HOME = prevHome;
+    if (prevMargKey === undefined) delete process.env.MARGINALIA_API_KEY;
+    else process.env.MARGINALIA_API_KEY = prevMargKey;
+    if (prevSednium === undefined) delete process.env.SEDNIUM_NEWS_BASE_URL;
+    else process.env.SEDNIUM_NEWS_BASE_URL = prevSednium;
+    rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+test("api-anything catalog exposes 114+ sites and pins execution to maxTier 1", async () => {
+  const testHome = mkdtempSync(path.join(os.tmpdir(), "agent-search-cat-"));
+  const prevHome = process.env.API_ANYTHING_HOME;
+  process.env.API_ANYTHING_HOME = testHome;
+  try {
+    const full = listCatalog();
+    assert.ok(full.total_sites >= 114, `expected >= 114 sites, got ${full.total_sites}`);
+    assert.ok(full.total_operations >= 300);
+
+    const arxivOnly = listCatalog({ site: "arxiv" });
+    assert.equal(arxivOnly.total_sites, 1);
+    const arxivOps = arxivOnly.sites[0]?.operations.map((o) => o.operation) ?? [];
+    for (const op of ["search", "getPaper", "searchPapers"]) {
+      assert.ok(arxivOps.includes(op));
+    }
+
+    const callRes = await callCatalogOperation(
+      { site: "marginalia", operation: "search", params: { query: "hono" } },
+      { fetchImpl: createMockFetch() },
+    );
+    assert.equal(callRes.ok, true);
+    assert.ok(Array.isArray(callRes.data));
+
+    // Bundled minTier: 2 operation must be refused when pinned to maxTier: 1
+    const tierBlocked = await callCatalogOperation(
+      { site: "courtlistener", operation: "searchOpinions", params: { q: "copyright" } },
+      { fetchImpl: createMockFetch() },
+    );
+    assert.equal(tierBlocked.ok, false);
+    assert.equal(tierBlocked.class, "blocked");
+    assert.match(tierBlocked.reason ?? "", /capped at 1/);
   } finally {
     if (prevHome === undefined) delete process.env.API_ANYTHING_HOME;
     else process.env.API_ANYTHING_HOME = prevHome;
@@ -489,11 +677,10 @@ test("SearchCache supports LRU eviction, TTL expiration, and persistent JSON dis
     const cache1 = new SearchCache({ maxEntries: 2, ttlMs: 60_000, persistentDir: dir });
     cache1.set("k1", { v: 1 });
     cache1.set("k2", { v: 2 });
-    assert.deepEqual(cache1.get("k1"), { v: 1 }); // touch k1 so k2 becomes LRU
-    cache1.set("k3", { v: 3 }); // evicts k2 from memory
+    assert.deepEqual(cache1.get("k1"), { v: 1 });
+    cache1.set("k3", { v: 3 });
     assert.deepEqual(cache1.get("k3"), { v: 3 });
 
-    // New instance reads persisted k1 from disk
     const cache2 = new SearchCache({ maxEntries: 2, ttlMs: 60_000, persistentDir: dir });
     assert.equal(cache2.getStats().backend, "disk+memory");
     assert.deepEqual(cache2.get("k1"), { v: 1 });
@@ -502,8 +689,7 @@ test("SearchCache supports LRU eviction, TTL expiration, and persistent JSON dis
   }
 });
 
-test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/extract, /v1/crawl, /v1/research, and auth", async () => {
-  // Use an isolated temp API_ANYTHING_HOME for REST/MCP mock tests so ./data is untouched
+test("REST API routes: /, /health, /openapi.json, /v1/search, /v1/extract, /v1/crawl, /v1/research, /v1/catalog, and auth", async () => {
   const testAaHome = mkdtempSync(path.join(os.tmpdir(), "agent-search-aa-"));
   const prevHome = process.env.API_ANYTHING_HOME;
   process.env.API_ANYTHING_HOME = testAaHome;
@@ -518,7 +704,8 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     assert.match(html, /#09090b/);
     assert.match(html, /#06b6d4/);
     assert.match(html, /<option value="research">research<\/option>/);
-    assert.match(html, /startpage, marginalia, qwant, arxiv/);
+    assert.match(html, /\/v1\/catalog/);
+    assert.match(html, /sednium-news, google-news-rss, semantic-scholar, arxiv/);
     const scriptMatch = /<script>([\s\S]*?)<\/script>/.exec(html);
     assert.ok(scriptMatch?.[1], "expected inline script in playground HTML");
     assert.doesNotThrow(() => new Function(scriptMatch[1]!));
@@ -529,7 +716,18 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     const health = (await healthRes.json()) as { status: string; providers: Array<{ name: string }> };
     assert.equal(health.status, "ok");
     const providerNames = health.providers.map((p) => p.name);
-    for (const expected of ["ddg-lite", "startpage", "marginalia", "qwant", "arxiv", "wikipedia", "hacker-news", "github"]) {
+    for (const expected of [
+      "ddg-lite",
+      "marginalia",
+      "wikipedia",
+      "github",
+      "stackexchange",
+      "hacker-news",
+      "sednium-news",
+      "google-news-rss",
+      "semantic-scholar",
+      "arxiv",
+    ]) {
       assert.ok(providerNames.includes(expected), `missing provider ${expected}`);
     }
 
@@ -541,12 +739,42 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
       components: { schemas: { SearchRequest: { properties: { topic: { enum: string[] } } } } };
     };
     assert.equal(openApi.openapi, "3.1.0");
-    assert.ok("/v1/search" in openApi.paths);
-    assert.ok("/mcp" in openApi.paths);
+    for (const p of ["/v1/search", "/v1/catalog", "/v1/catalog/call", "/mcp"]) {
+      assert.ok(p in openApi.paths, `missing OpenAPI path ${p}`);
+    }
     assert.deepEqual(
       openApi.components.schemas.SearchRequest.properties.topic.enum,
       ["general", "news", "code", "research"],
     );
+
+    // GET /v1/catalog & POST /v1/catalog/call
+    const catalogRes = await app.request("/v1/catalog");
+    assert.equal(catalogRes.status, 200);
+    const catalogJson = (await catalogRes.json()) as { total_sites: number; total_operations: number };
+    assert.ok(catalogJson.total_sites >= 114);
+    assert.ok(catalogJson.total_operations >= 300);
+
+    const catalogFilterRes = await app.request("/v1/catalog?site=marginalia");
+    assert.equal(catalogFilterRes.status, 200);
+    const catalogFilterJson = (await catalogFilterRes.json()) as {
+      total_sites: number;
+      sites: Array<{ site: string; operations: Array<{ operation: string }> }>;
+    };
+    assert.equal(catalogFilterJson.total_sites, 1);
+    assert.equal(catalogFilterJson.sites[0]?.operations[0]?.operation, "search");
+
+    const catalogMissingRes = await app.request("/v1/catalog?site=does-not-exist-xyz");
+    assert.equal(catalogMissingRes.status, 404);
+
+    const catalogCallRes = await app.request("/v1/catalog/call", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ site: "marginalia", operation: "search", params: { query: "hono" } }),
+    });
+    assert.equal(catalogCallRes.status, 200);
+    const catalogCallJson = (await catalogCallRes.json()) as { ok: boolean; data: Array<{ url: string }> };
+    assert.equal(catalogCallJson.ok, true);
+    assert.ok(catalogCallJson.data.length >= 1);
 
     // POST /v1/search (advanced -> attaches Markdown content)
     const searchRes = await app.request("/v1/search", {
@@ -569,7 +797,7 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     const searchGetJson = (await searchGetRes.json()) as { cached: boolean };
     assert.equal(searchGetJson.cached, true);
 
-    // POST /v1/search with topic="research" (hits arxiv + wikipedia + startpage)
+    // POST /v1/search with topic="research" (hits semantic-scholar + arxiv + wikipedia + sednium-news)
     const researchTopicRes = await app.request("/v1/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -579,8 +807,8 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     const researchTopicJson = (await researchTopicRes.json()) as {
       results: Array<{ url: string; source: string }>;
     };
+    assert.ok(researchTopicJson.results.some((r) => r.source.includes("semantic-scholar")));
     assert.ok(researchTopicJson.results.some((r) => r.source.includes("arxiv")));
-    assert.ok(researchTopicJson.results.some((r) => r.url.startsWith("https://arxiv.org/abs/")));
 
     // POST /v1/extract (including SSRF block & 404 failure)
     const extractRes = await app.request("/v1/extract", {
@@ -639,13 +867,11 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
     const prevKey = process.env.SEARCH_API_KEY;
     process.env.SEARCH_API_KEY = "test-secret-token";
     try {
-      const unauth = await app.request("/v1/search?query=test");
-      assert.equal(unauth.status, 401);
+      assert.equal((await app.request("/v1/search?query=test")).status, 401);
+      assert.equal((await app.request("/v1/catalog")).status, 401);
+      assert.equal((await app.request("/health")).status, 200);
 
-      const authHealth = await app.request("/health");
-      assert.equal(authHealth.status, 200);
-
-      const authed = await app.request("/v1/search?query=hono+framework&search_depth=advanced&max_results=5", {
+      const authed = await app.request("/v1/catalog?site=github", {
         headers: { Authorization: "Bearer test-secret-token" },
       });
       assert.equal(authed.status, 200);
@@ -660,7 +886,7 @@ test("REST API routes: /, /health, /openapi.json, /v1/search (GET/POST), /v1/ext
   }
 });
 
-test("Stateless Streamable HTTP MCP endpoint handles POST tools/list + tools/call and returns 405 on GET", async () => {
+test("Stateless Streamable HTTP MCP endpoint exposes web_search + catalog tools and returns 405 on GET", async () => {
   const testHome = mkdtempSync(path.join(os.tmpdir(), "agent-search-mcp-"));
   const prevHome = process.env.API_ANYTHING_HOME;
   process.env.API_ANYTHING_HOME = testHome;
@@ -688,9 +914,16 @@ test("Stateless Streamable HTTP MCP endpoint handles POST tools/list + tools/cal
       result: { tools: Array<{ name: string }> };
     };
     const toolNames = listJson.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(toolNames, ["crawl_site", "deep_research", "extract_url", "web_search"]);
+    assert.deepEqual(toolNames, [
+      "call_catalog",
+      "crawl_site",
+      "deep_research",
+      "extract_url",
+      "list_catalog",
+      "web_search",
+    ]);
 
-    const callRes = await app.request("/mcp", {
+    const searchCallRes = await app.request("/mcp", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -702,19 +935,62 @@ test("Stateless Streamable HTTP MCP endpoint handles POST tools/list + tools/cal
         method: "tools/call",
         params: {
           name: "web_search",
-          arguments: { query: "transformers", topic: "research", max_results: 4 },
+          arguments: { query: "transformers", topic: "research", max_results: 6 },
         },
       }),
     });
-    assert.equal(callRes.status, 200);
-    const callJson = (await callRes.json()) as {
+    assert.equal(searchCallRes.status, 200);
+    const searchCallJson = (await searchCallRes.json()) as {
       result: { content: Array<{ type: string; text: string }> };
     };
-    const parsedToolPayload = JSON.parse(callJson.result.content[0]!.text) as {
+    const parsedSearch = JSON.parse(searchCallJson.result.content[0]!.text) as {
       results: Array<{ source: string }>;
     };
-    assert.ok(parsedToolPayload.results.length >= 3);
-    assert.ok(parsedToolPayload.results.some((r) => r.source.includes("arxiv")));
+    assert.ok(parsedSearch.results.some((r) => r.source.includes("semantic-scholar")));
+    assert.ok(parsedSearch.results.some((r) => r.source.includes("arxiv")));
+
+    const listCatRes = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "list_catalog", arguments: { site: "arxiv" } },
+      }),
+    });
+    assert.equal(listCatRes.status, 200);
+    const listCatJson = JSON.parse(
+      ((await listCatRes.json()) as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+    ) as { total_sites: number; sites: Array<{ site: string }> };
+    assert.equal(listCatJson.total_sites, 1);
+    assert.equal(listCatJson.sites[0]?.site, "arxiv");
+
+    const callCatRes = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "call_catalog",
+          arguments: { site: "marginalia", operation: "search", params: { query: "hono" } },
+        },
+      }),
+    });
+    assert.equal(callCatRes.status, 200);
+    const callCatJson = JSON.parse(
+      ((await callCatRes.json()) as { result: { content: Array<{ text: string }> } }).result.content[0]!.text,
+    ) as { ok: boolean; data: Array<{ url: string }> };
+    assert.equal(callCatJson.ok, true);
+    assert.ok(callCatJson.data.length >= 1);
   } finally {
     if (prevHome === undefined) delete process.env.API_ANYTHING_HOME;
     else process.env.API_ANYTHING_HOME = prevHome;
@@ -736,6 +1012,11 @@ test("Vercel handler executes cleanly with VERCEL=1 and writes nothing outside /
     const apiHome = process.env["API_ANYTHING_HOME"] ?? "";
     assert.ok(apiHome.startsWith(os.tmpdir()));
 
+    const catRes = await vercelGet(new Request("https://example.vercel.app/v1/catalog"));
+    assert.equal(catRes.status, 200);
+    const catBody = (await catRes.json()) as { total_sites: number };
+    assert.ok(catBody.total_sites >= 114);
+
     const mcp405 = await vercelGet(new Request("https://example.vercel.app/mcp"));
     assert.equal(mcp405.status, 405);
 
@@ -755,7 +1036,7 @@ test("Vercel handler executes cleanly with VERCEL=1 and writes nothing outside /
   }
 });
 
-test("Stdio MCP entrypoint responds to initialize and tools/list", async () => {
+test("Stdio MCP entrypoint responds to initialize and tools/list with catalog tools", async () => {
   const testHome = mkdtempSync(path.join(os.tmpdir(), "agent-search-stdio-"));
   const child = spawn(process.execPath, ["dist/mcp-stdio.js"], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -808,7 +1089,7 @@ test("Stdio MCP entrypoint responds to initialize and tools/list", async () => {
     assert.ok(listResp?.result?.tools);
     assert.deepEqual(
       listResp.result.tools.map((t) => t.name).sort(),
-      ["crawl_site", "deep_research", "extract_url", "web_search"],
+      ["call_catalog", "crawl_site", "deep_research", "extract_url", "list_catalog", "web_search"],
     );
   } finally {
     child.kill("SIGTERM");

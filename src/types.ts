@@ -132,3 +132,58 @@ export interface RawEngineResult {
   snippet: string;
   source: string;
 }
+
+export const CatalogCallRequestSchema = z.object({
+  site: z.string().trim().min(1, "site is required").max(100),
+  operation: z.string().trim().min(1, "operation is required").max(100),
+  params: z.record(z.string(), z.unknown()).optional().default({}),
+});
+export type CatalogCallRequest = z.infer<typeof CatalogCallRequestSchema>;
+
+export interface CatalogOperationSummary {
+  operation: string;
+  description?: string;
+  readOnly: boolean;
+  minTier: number;
+  params: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  links?: unknown[];
+}
+
+export interface CatalogSiteSummary {
+  site: string;
+  displayName?: string;
+  baseUrl: string;
+  description?: string;
+  source: "user" | "registry" | "bundled";
+  operations: CatalogOperationSummary[];
+}
+
+export interface CatalogResponse {
+  total_sites: number;
+  total_operations: number;
+  sites: CatalogSiteSummary[];
+}
+
+export interface CatalogCallResponse {
+  site: string;
+  operation: string;
+  ok: boolean;
+  class: string;
+  data?: unknown;
+  truncated?: string;
+  resultId?: string;
+  more?: unknown;
+  nextPage?: string | number;
+  hasMore?: boolean;
+  tier?: 1 | 2 | 3;
+  ms: number;
+  reason?: string;
+  next?: string;
+  retry?: string;
+  retryAfterMs?: number;
+  nextCall?: unknown;
+  cached?: true;
+  ageMs?: number;
+}
+

@@ -1,18 +1,19 @@
 {
   "name": "marginalia",
   "displayName": "Marginalia Search",
-  "baseUrl": "https://api.marginalia.nu",
-  "description": "Public independent web search JSON API from Marginalia Search (api.marginalia.nu).",
+  "baseUrl": "https://api2.marginalia-search.com",
+  "description": "Independent non-commercial web search JSON API from Marginalia Search (api2.marginalia-search.com).",
   "operations": [
     {
       "name": "search",
-      "description": "Search Marginalia's independent index via the public JSON endpoint.",
+      "description": "Search Marginalia's independent index via the api2.marginalia-search.com JSON endpoint.",
       "request": {
         "method": "GET",
-        "url": "https://api.marginalia.nu/public/search/%7Bquery%7D?count=10",
+        "url": "https://api2.marginalia-search.com/search?query=%7Bquery%7D&count=10",
         "headers": {
           "accept": "application/json",
           "accept-language": "en-US,en;q=0.9",
+          "api-key": "public",
           "user-agent": "agent-search/1.0 (+https://github.com/AnkushDas4/agent-search)"
         }
       },
@@ -20,18 +21,18 @@
         {
           "param": "query",
           "at": [
-            "path:2"
+            "query:query"
           ]
         }
       ],
       "volatile": [],
       "trigger": {
-        "url": "https://api.marginalia.nu/public/search/{query}?count=10"
+        "url": "https://api2.marginalia-search.com/search?query={query}&count=10"
       },
       "match": {
         "method": "GET",
-        "host": "api.marginalia.nu",
-        "path": "/public/search/*"
+        "host": "api2.marginalia-search.com",
+        "path": "/search"
       },
       "response": {
         "format": "json",

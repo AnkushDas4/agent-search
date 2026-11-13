@@ -10,7 +10,12 @@ Deploy in one click to **Vercel**, or self-host on **Android (Termux)**, **Linux
 
 ## Key Capabilities
 
-- **Multi-Engine Tier-1 Fan-Out (`maxTier: 1`)**: Searches `ddg-lite`, `startpage`, `marginalia`, `qwant`, and `arxiv` (from committed `./sites/*.json` specs) alongside `api-anything`'s bundled `wikipedia`, `hacker-news`, and `github` Tier-1 operations across `general`, `news`, `code`, and `research` topics, with automatic direct-HTTP HTML/JSON fallbacks.
+- **Multi-Engine Stateless Tier-1 Fan-Out (`maxTier: 1`)**: Routes searches across zero-key plain-HTTP providers by topic:
+  - `general`: `ddg-lite`, `marginalia` (`api2.marginalia-search.com`), `wikipedia`
+  - `code`: `github`, `stackexchange` (Stack Overflow), `hacker-news`, `ddg-lite`, `sednium-news` (`/rss/technology`)
+  - `news`: `sednium-news` (`/rss` + keyword-matched `/rss/india`, `/rss/world`, `/rss/business`), `google-news-rss`, `hacker-news`, `ddg-lite`
+  - `research`: `semantic-scholar`, `arxiv`, `wikipedia`, `sednium-news` (`/rss/science`)
+- **Full `api-anything` Catalog (`114+` Sites)**: Exposes every pre-bundled `api-anything` site and local `./sites/*.json` operation over `GET /v1/catalog`, `POST /v1/catalog/call`, and MCP tools `list_catalog` / `call_catalog` (strictly pinned to `{ maxTier: 1 }`).
 - **Deduplication & Consensus Ranking**: Unwraps tracking redirects, canonicalizes URLs, boosts results found across multiple engines, and supports `include_domains` / `exclude_domains` filters.
 - **Clean Markdown Extraction**: Fetches and converts web pages via `@mozilla/readability`, `linkedom`, and `turndown` with SSRF protection (blocks private/loopback/metadata IPs and validates redirects).
 - **Same-Origin BFS Crawler & Deep Research**: Crawls up to `max_depth <= 2` / `limit <= 10` pages (`POST /v1/crawl`), or expands any topic into 3 search angles and returns a structured research context bundle with numbered citations (`POST /v1/research`).
@@ -32,7 +37,7 @@ Deploy in one click to **Vercel**, or self-host on **Android (Termux)**, **Linux
 
 Click the **Deploy with Vercel** button above (or import `https://github.com/AnkushDas4/agent-search` in Vercel).
 
-- [`vercel.json`](./vercel.json) rewrites `/(.*)` to [`api/index.ts`](./api/index.ts) with `maxDuration: 30` and bundles `./sites/**`.
+- [`vercel.json`](./vercel.json) rewrites `/(.*)` to [`api/index.ts`](./api/index.ts) with `maxDuration: 30` and bundles `./sites/**` plus `node_modules/api-anything/sites/**`.
 - On Vercel (`VERCEL=1`), `agent-search` uses memory caching only and stores `api-anything` runtime files under `/tmp`, making zero writes outside `/tmp`.
 - Set an optional `SEARCH_API_KEY` environment variable in Vercel Project Settings if you want Bearer token auth on `/v1/*` and `/mcp`.
 
@@ -90,6 +95,8 @@ docker compose up -d --build
 | `/v1/extract` | `POST` | Concurrent Markdown/text extraction for up to 10 URLs |
 | `/v1/crawl` | `POST` | Same-origin BFS crawl (`max_depth <= 2`, `limit <= 10`) |
 | `/v1/research` | `POST` | 3-angle topic expansion + Markdown research bundle with citations |
+| `/v1/catalog` | `GET` | List all `114+` bundled & local `./sites/` operations and parameter schemas |
+| `/v1/catalog/call` | `POST` | Execute a read-only Tier-1 catalog operation (`{ maxTier: 1 }`) |
 | `/mcp` | `POST` | Stateless Streamable HTTP MCP JSON-RPC endpoint (`GET` returns `405`) |
 
 ### Search (`POST /v1/search` & `GET /v1/search`)
@@ -144,17 +151,35 @@ curl -sS -X POST "http://localhost:8787/v1/research" \
   }'
 ```
 
+### Site Catalog (`GET /v1/catalog` & `POST /v1/catalog/call`)
+
+```bash
+curl -sS "http://localhost:8787/v1/catalog?site=github"
+```
+
+```bash
+curl -sS -X POST "http://localhost:8787/v1/catalog/call" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "github",
+    "operation": "searchRepos",
+    "params": { "q": "hono" }
+  }'
+```
+
 If `SEARCH_API_KEY` is configured, include `-H "Authorization: Bearer <SEARCH_API_KEY>"` on `/v1/*` and `/mcp` requests.
 
 ---
 
 ## MCP Configuration (`mcp_config.json`)
 
-Registered MCP tools:
+Registered MCP tools (available on both `POST /mcp` and `dist/mcp-stdio.js`):
 - `web_search` — Multi-engine web search with domain filtering and optional Markdown extraction
 - `extract_url` — Extract clean Markdown or plain text from up to 10 URLs
 - `crawl_site` — Same-origin BFS crawler (`max_depth <= 2`, `limit <= 10`)
 - `deep_research` — Multi-angle search + extraction bundle with numbered citations
+- `list_catalog` — Browse all `114+` bundled and local `./sites/` operations and parameter schemas
+- `call_catalog` — Execute a read-only Tier-1 operation from the `api-anything` catalog (`maxTier: 1`)
 
 ### Option A: Remote Stateless Streamable HTTP (`/mcp`)
 
@@ -209,6 +234,8 @@ See [`.env.example`](./.env.example):
 | `SEARCH_API_KEY` | *(unset)* | Optional Bearer token protecting `/v1/*` and `/mcp` |
 | `PORT` | `8787` | HTTP server port |
 | `HOST` | `0.0.0.0` | HTTP bind host |
+| `SEDNIUM_NEWS_BASE_URL` | `https://news.sednium.com` | Base URL for Sednium News category RSS feeds (`/rss`, `/rss/india`, `/rss/world`, `/rss/business`, `/rss/technology`, `/rss/science`) |
+| `MARGINALIA_API_KEY` | `public` | `API-Key` header sent to `https://api2.marginalia-search.com/search` |
 | `CACHE_TTL_MS` | `900000` | Cache TTL in milliseconds (15 minutes; `0` disables caching) |
 | `CACHE_MAX_ENTRIES` | `256` | Maximum in-memory LRU cache entries |
 | `CACHE_DIR` | `./data/cache` | Persistent JSON cache directory (disabled automatically on Vercel) |

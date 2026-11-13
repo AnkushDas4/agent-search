@@ -59,8 +59,10 @@ export function ensureApiAnythingEnv(): { home: string; sitesDir: string | undef
       const targetDir = path.join(home, "sites");
       mkdirSync(targetDir, { recursive: true });
       if (sitesDir) {
+        const expectedFiles = new Set<string>();
         for (const file of readdirSync(sitesDir)) {
           if (!file.endsWith(".json") && !file.endsWith(".md")) continue;
+          expectedFiles.add(file);
           const src = path.join(sitesDir, file);
           const dst = path.join(targetDir, file);
           if (!existsSync(dst)) {
@@ -72,6 +74,14 @@ export function ensureApiAnythingEnv(): { home: string; sitesDir: string | undef
             if (srcBuf !== dstBuf) {
               copyFileSync(src, dst);
               synced.push(file);
+            }
+          }
+        }
+        // Remove stale repo specs (e.g. startpage.json / qwant.json) from managed runtime dirs
+        if (managedHome || isVercelRuntime()) {
+          for (const existing of readdirSync(targetDir)) {
+            if ((existing.endsWith(".json") || existing.endsWith(".md")) && !expectedFiles.has(existing)) {
+              rmSync(path.join(targetDir, existing), { force: true });
             }
           }
         }

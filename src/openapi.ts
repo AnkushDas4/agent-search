@@ -114,6 +114,15 @@ export function buildOpenApiSpec(baseUrl?: string) {
             max_sources: { type: "integer", minimum: 1, maximum: 10, default: 5 },
           },
         },
+        CatalogCallRequest: {
+          type: "object",
+          required: ["site", "operation"],
+          properties: {
+            site: { type: "string", minLength: 1, maxLength: 100 },
+            operation: { type: "string", minLength: 1, maxLength: 100 },
+            params: { type: "object", additionalProperties: true },
+          },
+        },
       },
     },
     paths: {
@@ -211,6 +220,35 @@ export function buildOpenApiSpec(baseUrl?: string) {
           },
           responses: {
             "200": { description: "Structured research bundle with numbered citations" },
+          },
+        },
+      },
+      "/v1/catalog": {
+        get: {
+          summary: "List all available bundled and local ./sites/ api-anything catalog operations and parameters",
+          security: [{}, { bearerAuth: [] }],
+          parameters: [
+            { name: "site", in: "query", schema: { type: "string" } },
+            { name: "query", in: "query", schema: { type: "string" } },
+          ],
+          responses: {
+            "200": { description: "Catalog of available sites, operations, and parameter schemas" },
+            "404": { description: "Requested site not found in catalog" },
+          },
+        },
+      },
+      "/v1/catalog/call": {
+        post: {
+          summary: "Execute a read-only Tier-1 operation from the api-anything site catalog (maxTier: 1)",
+          security: [{}, { bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { $ref: "#/components/schemas/CatalogCallRequest" } } },
+          },
+          responses: {
+            "200": { description: "Catalog operation execution result" },
+            "400": { description: "Invalid request body" },
+            "403": { description: "Write operations are not permitted" },
           },
         },
       },

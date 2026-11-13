@@ -86,7 +86,7 @@ node -e '
   const data = JSON.parse(process.argv[1]);
   assert.equal(data.status, "ok");
   assert.equal(data.auth_enabled, false);
-  assert.ok(Array.isArray(data.providers) && data.providers.length >= 6);
+  assert.ok(Array.isArray(data.providers) && data.providers.length >= 10);
   assert.equal(data.cache.backend, "disk+memory");
 ' "$HEALTH_JSON"
 
@@ -95,10 +95,31 @@ node -e '
   const assert = require("node:assert/strict");
   const spec = JSON.parse(process.argv[1]);
   assert.equal(spec.openapi, "3.1.0");
-  for (const p of ["/v1/search", "/v1/extract", "/v1/crawl", "/v1/research", "/mcp"]) {
+  for (const p of ["/v1/search", "/v1/extract", "/v1/crawl", "/v1/research", "/v1/catalog", "/v1/catalog/call", "/mcp"]) {
     assert.ok(p in spec.paths, `Missing path in OpenAPI: ${p}`);
   }
 ' "$OPENAPI_JSON"
+
+curl -fsS "${BASE_URL}/v1/catalog" | node -e '
+  const assert = require("node:assert/strict");
+  const fs = require("node:fs");
+  const data = JSON.parse(fs.readFileSync(0, "utf8"));
+  assert.ok(data.total_sites >= 114, `Expected >= 114 catalog sites, got ${data.total_sites}`);
+  assert.ok(data.total_operations >= 300);
+  console.log(`    GET /v1/catalog -> ${data.total_sites} sites, ${data.total_operations} operations`);
+'
+
+CATALOG_CALL_JSON="$(curl -fsS -X POST "${BASE_URL}/v1/catalog/call" \
+  -H "Content-Type: application/json" \
+  -d '{"site":"github","operation":"searchRepos","params":{"q":"hono"}}')"
+node -e '
+  const assert = require("node:assert/strict");
+  const data = JSON.parse(process.argv[1]);
+  assert.equal(data.site, "github");
+  assert.equal(data.operation, "searchRepos");
+  assert.equal(typeof data.ok, "boolean");
+  console.log(`    POST /v1/catalog/call (github.searchRepos) -> ok=${data.ok}, ms=${data.ms}`);
+' "$CATALOG_CALL_JSON"
 
 SEARCH_GET_JSON="$(curl -fsS "${BASE_URL}/v1/search?query=hono&topic=code&max_results=5")"
 node -e '
@@ -180,9 +201,22 @@ node -e '
   const assert = require("node:assert/strict");
   const data = JSON.parse(process.argv[1]);
   const names = data.result.tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["crawl_site", "deep_research", "extract_url", "web_search"]);
+  assert.deepEqual(names, ["call_catalog", "crawl_site", "deep_research", "extract_url", "list_catalog", "web_search"]);
   console.log(`    POST /mcp tools/list -> ${names.join(", ")}`);
 ' "$MCP_LIST_JSON"
+
+MCP_CATALOG_JSON="$(curl -fsS -X POST "${BASE_URL}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_catalog","arguments":{"site":"github"}}}')"
+node -e '
+  const assert = require("node:assert/strict");
+  const data = JSON.parse(process.argv[1]);
+  const payload = JSON.parse(data.result.content[0].text);
+  assert.equal(payload.total_sites, 1);
+  assert.equal(payload.sites[0].site, "github");
+  console.log(`    POST /mcp tools/call (list_catalog) -> github (${payload.total_operations} ops)`);
+' "$MCP_CATALOG_JSON"
 
 MCP_CALL_JSON="$(curl -fsS -X POST "${BASE_URL}/mcp" \
   -H "Content-Type: application/json" \

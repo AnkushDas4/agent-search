@@ -5,11 +5,13 @@ import { cors } from "hono/cors";
 import { ensureApiAnythingEnv } from "./api-anything-env.js";
 import { SearchCache } from "./cache.js";
 import { APP_VERSION, getCacheMaxEntries, getCacheTtlMs, getSearchApiKey, isVercelRuntime } from "./config.js";
+import { callCatalogOperation, listCatalog } from "./catalog.js";
 import { createMcpServer } from "./mcp.js";
 import { buildOpenApiSpec } from "./openapi.js";
 import { REGISTERED_PROVIDERS } from "./search/engines.js";
 import { crawlSite, deepResearch, extractUrls, type ServiceDeps, searchWeb } from "./search/service.js";
 import {
+  CatalogCallRequestSchema,
   CrawlRequestSchema,
   ExtractRequestSchema,
   ResearchRequestSchema,
@@ -218,6 +220,38 @@ export function createApp(options: AppOptions = {}): Hono {
     }
 
     const result = await deepResearch(parsed.data, deps);
+    return c.json(result);
+  });
+
+  // GET /v1/catalog
+  app.get("/v1/catalog", (c) => {
+    const site = c.req.query("site")?.trim() || undefined;
+    const query = (c.req.query("query") ?? c.req.query("q"))?.trim() || undefined;
+    const catalog = listCatalog({ site, query });
+    if (site && catalog.total_sites === 0) {
+      return c.json({ error: `Site "${site}" not found in catalog`, site }, 404);
+    }
+    return c.json(catalog);
+  });
+
+  // POST /v1/catalog/call
+  app.post("/v1/catalog/call", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON request body" }, 400);
+    }
+
+    const parsed = CatalogCallRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid request body", details: parsed.error.flatten() }, 400);
+    }
+
+    const result = await callCatalogOperation(parsed.data, { fetchImpl: options.fetchImpl });
+    if (result.class === "refused") {
+      return c.json(result, 403);
+    }
     return c.json(result);
   });
 

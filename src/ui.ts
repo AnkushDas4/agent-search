@@ -318,6 +318,7 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
           <button class="tab" data-mode="extract">/v1/extract</button>
           <button class="tab" data-mode="crawl">/v1/crawl</button>
           <button class="tab" data-mode="research">/v1/research</button>
+          <button class="tab" data-mode="catalog">/v1/catalog</button>
         </div>
 
         <form id="playground-form">
@@ -404,6 +405,38 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
             </div>
           </div>
 
+          <div id="fields-catalog" class="hidden">
+            <div class="row">
+              <div class="field">
+                <label for="cat-action">catalog action</label>
+                <select id="cat-action">
+                  <option value="list">GET /v1/catalog (browse 114+ sites)</option>
+                  <option value="call">POST /v1/catalog/call (execute Tier-1 op)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="cat-site">site (optional for list / required for call)</label>
+                <input id="cat-site" type="text" value="github" placeholder="e.g. github, arxiv, wikipedia" />
+              </div>
+            </div>
+            <div class="row" id="cat-list-fields">
+              <div class="field">
+                <label for="cat-query">filter query (optional)</label>
+                <input id="cat-query" type="text" value="" placeholder="Search site or operation..." />
+              </div>
+            </div>
+            <div class="row hidden" id="cat-call-fields">
+              <div class="field">
+                <label for="cat-op">operation</label>
+                <input id="cat-op" type="text" value="searchRepos" placeholder="e.g. searchRepos, getPaper" />
+              </div>
+              <div class="field" style="flex:2">
+                <label for="cat-params">params (JSON object)</label>
+                <input id="cat-params" type="text" value='{"q":"hono"}' placeholder='{"q":"hono"}' />
+              </div>
+            </div>
+          </div>
+
           <div class="row" style="align-items:flex-end;">
             <div class="field">
               <label for="api-key">Bearer token (optional unless SEARCH_API_KEY is set)</label>
@@ -456,7 +489,7 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
 
     <footer>
       <span>MIT License &copy; 2026 Ankush Das &middot; <a href="https://github.com/AnkushDas4/agent-search" target="_blank" rel="noreferrer">AnkushDas4/agent-search</a></span>
-      <span>Backends: ddg-lite, startpage, marginalia, qwant, arxiv, wikipedia, hacker-news, github</span>
+      <span>Backends: ddg-lite, marginalia, wikipedia, github, stackexchange, hacker-news, sednium-news, google-news-rss, semantic-scholar, arxiv &middot; 114+ catalog sites</span>
     </footer>
   </div>
 
@@ -478,6 +511,7 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
     function buildPayload() {
       if (activeMode === 'search') {
         return {
+          method: 'POST',
           path: '/v1/search',
           body: {
             query: document.getElementById('s-query').value.trim(),
@@ -491,12 +525,14 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
       if (activeMode === 'extract') {
         const urls = document.getElementById('e-urls').value.split(/\\n+/).map(s => s.trim()).filter(Boolean);
         return {
+          method: 'POST',
           path: '/v1/extract',
           body: { urls, format: document.getElementById('e-format').value },
         };
       }
       if (activeMode === 'crawl') {
         return {
+          method: 'POST',
           path: '/v1/crawl',
           body: {
             url: document.getElementById('c-url').value.trim(),
@@ -505,26 +541,63 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
           },
         };
       }
+      if (activeMode === 'research') {
+        return {
+          method: 'POST',
+          path: '/v1/research',
+          body: {
+            topic: document.getElementById('r-topic').value.trim(),
+            max_sources: Number(document.getElementById('r-max').value) || 5,
+          },
+        };
+      }
+      const catAction = document.getElementById('cat-action').value;
+      const catSite = document.getElementById('cat-site').value.trim();
+      if (catAction === 'list') {
+        const qs = new URLSearchParams();
+        if (catSite) qs.set('site', catSite);
+        const catQuery = document.getElementById('cat-query').value.trim();
+        if (catQuery) qs.set('query', catQuery);
+        const qStr = qs.toString();
+        return {
+          method: 'GET',
+          path: '/v1/catalog' + (qStr ? '?' + qStr : ''),
+          body: null,
+        };
+      }
+      let parsedParams = {};
+      try {
+        parsedParams = JSON.parse(document.getElementById('cat-params').value || '{}');
+      } catch {
+        parsedParams = {};
+      }
       return {
-        path: '/v1/research',
+        method: 'POST',
+        path: '/v1/catalog/call',
         body: {
-          topic: document.getElementById('r-topic').value.trim(),
-          max_sources: Number(document.getElementById('r-max').value) || 5,
+          site: catSite,
+          operation: document.getElementById('cat-op').value.trim(),
+          params: parsedParams,
         },
       };
     }
 
     function updateSnippets() {
-      const { path, body } = buildPayload();
+      const { method, path, body } = buildPayload();
       const key = document.getElementById('api-key').value.trim();
       const origin = window.location.origin;
       const NL = String.fromCharCode(10);
       const CONT = ' ' + String.fromCharCode(92) + NL;
       const authLine = key ? CONT + '  -H "Authorization: Bearer ' + key + '"' : '';
-      curlPre.textContent =
-        'curl -sS -X POST "' + origin + path + '"' + CONT +
-        '  -H "Content-Type: application/json"' + authLine + CONT +
-        "  -d '" + JSON.stringify(body) + "'";
+      if (method === 'GET') {
+        curlPre.textContent =
+          'curl -sS "' + origin + path + '"' + authLine;
+      } else {
+        curlPre.textContent =
+          'curl -sS -X POST "' + origin + path + '"' + CONT +
+          '  -H "Content-Type: application/json"' + authLine + CONT +
+          "  -d '" + JSON.stringify(body) + "'";
+      }
 
       if (activeMcpMode === 'http') {
         const headers = key ? { Authorization: 'Bearer ' + key } : undefined;
@@ -550,11 +623,18 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
       }
     }
 
+    document.getElementById('cat-action').addEventListener('change', (ev) => {
+      const isCall = ev.target.value === 'call';
+      document.getElementById('cat-list-fields').classList.toggle('hidden', isCall);
+      document.getElementById('cat-call-fields').classList.toggle('hidden', !isCall);
+      updateSnippets();
+    });
+
     modeTabs.forEach(btn => {
       btn.addEventListener('click', () => {
         activeMode = btn.dataset.mode;
         modeTabs.forEach(b => b.classList.toggle('active', b === btn));
-        ['search', 'extract', 'crawl', 'research'].forEach(m => {
+        ['search', 'extract', 'crawl', 'research', 'catalog'].forEach(m => {
           document.getElementById('fields-' + m).classList.toggle('hidden', m !== activeMode);
         });
         updateSnippets();
@@ -601,9 +681,10 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       updateSnippets();
-      const { path, body } = buildPayload();
+      const { method, path, body } = buildPayload();
       const key = document.getElementById('api-key').value.trim();
-      const headers = { 'Content-Type': 'application/json' };
+      const headers = {};
+      if (method !== 'GET') headers['Content-Type'] = 'application/json';
       if (key) headers['Authorization'] = 'Bearer ' + key;
 
       runBtn.disabled = true;
@@ -614,9 +695,9 @@ export function renderPlaygroundHtml(authEnabled: boolean): string {
       const t0 = performance.now();
       try {
         const res = await fetch(path, {
-          method: 'POST',
+          method: method || 'POST',
           headers,
-          body: JSON.stringify(body),
+          ...(body !== null ? { body: JSON.stringify(body) } : {}),
         });
         const data = await res.json();
         const ms = Math.round(performance.now() - t0);
